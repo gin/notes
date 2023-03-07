@@ -1,0 +1,214 @@
+# Kubernetes in 4 Hours
+
+k8s is a bunch of containers orchestrated  
+pods = smallest unit  
+k8s manages pods
+
+linux [standalone]  
+container runtime (containerd, runc, crio) [image]  
+container engine (docker, podman)
+
+minikube: learning environment for k8s  
+`kubectl` can run on minikube or k8s or cloud
+
+cncf  
+k8s distribution (on-prem: openshift, rancher, anthos; cloud: gke, aks, eks; minimal: minikube, k3s, kind)
+
+https://github.com/sandervanvugt/kubernetes
+
+`minikube start --vm-driver=docker --cni=calico`  
+`minikube dashboard`  
+    e.g. container image: https://docker.io/library/nginx:1.18
+
+api resources types:  
+pod  
+replica set  
+deployment
+
+additional resources types:  
+service (load balancer)  
+ingress  
+persistent volume  
+configmap
+
+etcd: database that stores configmap  
+secret: base64 version of configmap
+
+application is deployment
+
+```
+kubectl create
+kubectl get
+    all
+    pods
+kubectl completion -h
+    source <(kubectl completion zsh)
+```
+
+`kubectl delete pod monginx-7df-jm8` will not work because deployment ensures 3 replicas  
+so, use deployment  
+but if standalone pod, `kubectl delete` will delete it without re-creating
+
+```
+kubectl create deploy testd --image=nginx
+kubectl get all --selector app=testd
+```
+
+`kubectl get pods monginx-7dfds-bffdsa -o yaml | less`  
+
+`kubestl scale deployment my app --replicas 0`  
+    Scale replica to 0 first is safer than delete.  
+    Do this first, and verify noone is affected, then delete.
+
+`kubectl api-reouces | less`
+
+`kubectl get all --show-labels`
+
+`kubectl describe pod`
+
+`kubectl explain pod.spec | less`
+
+`kubectl apply`  
+checks resources. Don't use create.
+
+`kubectl create deploy mynginx --image=nginx --dry-run=client -o yaml > myother.yaml`
+    Generate yaml, and no need to write from scratch
+    Add label
+
+`kubectl apply -f myother.yaml`
+
+`kubectl get ns`  
+    namespace
+
+`kubectl get pods -n default`
+`kubectl get pods -n kube-system`
+`kubectl get pods -A`  
+    get pods from all namespace
+
+
+## Troubleshooting
+```
+# Error on image
+kubectl create mydb --image=mariadb --replica=3
+kubectl create deploy mydb --image=mariadb --replica=3
+kubectl get all --selector app=mydb
+
+# Look at why
+kubectl describe pod mydb-21321-2fds | less
+
+# State:Reason: CrashLoopBackOff
+# due to deploy policy to recreate
+# issue due to application 
+
+kubectl logs mydb-fdsaefdsa-fdsajr
+
+kubectl set -h
+kubectl set env -h
+
+# From -h example to fix application error
+# then, rolling update to the deployment's pods
+kubectl set env deployment/mydb MARIADB_ROOT_PASSWORD=password
+
+# Some troubleshooting might have to look into the container
+kubectl exec -it mynginx-fdsa-fdsa --sh
+```
+
+
+## Networking
+pod network  
+    - (load balancer service with cluster ip)  
+    - (nodeport service with ip address)  
+cluster network  
+external network  
+    - (Ingress: expose for http/s traffic) (NodePort for non-http/s)
+
+`kubectl get pods -o wide`  
+    show IP address
+
+
+```
+kubectl create deploy nginxsvc --image=nginx --replica=3
+kubectl get pods -o wide
+kubectl get pods -o wide --selector=nginxsvc
+kubectl get svc
+kubectl get all --selector app=nginxsvc
+kubectl expose deployment nginxsvc --port=80
+kubectl get endpoints
+curl 10.108.106.141
+    # Doesn't work
+minikube ssh
+kubectl edit svc nginxsvc
+kubectl get all --selector app=nginxsvc
+curl 192.168.49.2:32639
+    # Works. Ports are randomly generated in the 32000 range
+
+kubectl edit
+# Change spec:type: ClusterIP to NodePort
+
+```
+
+
+# Container Storage
+is ephemeral  
+for persistent storage, define volumes
+
+`kubectl explain pod.spec.volumes | less`  
+`kubectl explain pod.spec.volumes.nfs | less`
+
+pvc (persistent volume claim)
+
+volumes  
+- emptyDir
+- hostPath
+
+https://github.com/sandervanvugt/kubernetes/blob/master/morevolumes.yaml
+```
+kubectl apply -f morevolumes.yaml
+kubectl get pods
+    # Check that the 2 pods are up
+kubectl describe pods morevol2 | less
+    # Verify that the 2 pods are up
+kubectl exec -it morevol -c centos1 -- touch /centos1/test
+    # -c to specify container name if there are >1 containers in the pod
+kubectl exec -it morevol -c centos1 -- ls -l /centos2
+    # showing storage is shared between the 2 containers
+```
+
+
+## ConfigMaps
+more elegant way than using deployment variables from earlier example
+
+```
+kubectl create deploy mynewdb --image-mysql --replica=3
+kubectl get pods --selector app=mynewdb
+    # See that pods are failing
+kubectl create cm mynewdbvars --from-literal=MYSQL_ROOT_PASSWORD=password
+kubectl describe cm mynewdbvars
+    # Check the contents of the ConfigMap
+# Apply the ConfigMap
+kubectl set env --from=configmap/mynewdbvars deploy/mynewdb
+kubectl get all --selector app=mynewdb
+```
+
+using secret (base64 of configmap). They are not secure. Use Hashicorp Vault instead.  
+useful for saving into ASCII, and that's it.
+```
+kubectl create secret generic mysecret --from-literal=COLOR=RED
+```
+
+
+List of commands in class:
+https://pastebin.com/82v6B9X5
+```
+for i in $(kubectl get deploy | awk '{ print $1 }'); do kubectl delete deploy $i; done
+
+kubectl create cm mynewdbvars --from-literal=MARIADB_ROOT_PASSWORD=password
+kubectl describe cm mynewdbvars 
+kubectl set env --from=configmap/mynewdbvars deploy/mynewdb
+kubectl get all
+kubectl create secret -h | less
+kubectl create secret generic -h | less
+kubectl create secret generic mysecret --from-literal=COLOR=RED
+kubectl get secret -o yaml
+echo UkVE | base64 -d
+```
